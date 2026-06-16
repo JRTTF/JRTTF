@@ -25,7 +25,7 @@
 
 ### 🌟 代表作品 / Featured Projects
 
-#### 🏭 [Concorde Innovation — 企業官網](https://github.com/JRTTF/concorde-v2)
+#### 🏭 [Concorde Innovation — 企業官網](https://concordeinnovation.com)
 精密製造公司的三語(EN / 繁中 / 简中)企業形象網站，從設計、開發到部署一手完成。
 > Trilingual corporate website — designed, built, and deployed end-to-end.
 > **React · Vite · React Router · Vercel**
@@ -34,7 +34,7 @@
 #### 💅 日•勻 Rayune — 美甲線上預約 / 記帳系統
 美甲工作室的即時線上預約系統與記帳後台，含時段管理、價格估算、後台開關控制。
 > Real-time online booking & accounting system for a nail studio.
-> **React · Firebase Realtime Database**
+> **Vanilla JavaScript · Firebase Realtime Database**
 
 #### 📍 [PikminBloom — iPhone GPS 模擬器](https://github.com/JRTTF/PikminBloom)
 Windows 上的 iPhone GPS 定位模擬工具，免越獄、免 iTunes，支援 iOS 17/18/26+。
