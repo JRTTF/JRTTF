@@ -23,6 +23,7 @@ python3 pop3client.py ServerIP -p 1100     # 指定 port
 python3 pop3client.py pop.gmail.com --ssl  # POP3 over SSL (port 995)
 python3 pop3client.py ServerIP -v          # 顯示 C:/S: 協定對話過程
 python3 pop3client.py --gui                # 圖形介面 (tkinter)
+python3 pop3client.py                      # 不加參數 (或直接雙擊檔案) 也會開啟圖形介面
 ```
 
 沒有可用的郵件伺服器時，可以先在本機啟動測試伺服器（帳號 `test`，密碼 `1234`）：

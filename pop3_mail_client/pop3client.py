@@ -24,6 +24,7 @@
 #    python3 pop3client.py ServerIP --ssl           (POP3S, port 995)
 #    python3 pop3client.py ServerIP -p 1100 -v      (指定 port、顯示協定對話)
 #    python3 pop3client.py --gui                    (圖形介面)
+#    python3 pop3client.py                          (不加參數或直接雙擊也會開啟圖形介面)
 #  2026.10.05
 ####################################################
 import argparse
@@ -897,8 +898,14 @@ def main():
     parser.add_argument("--save-dir", default="mails", help="儲存信件/附件的資料夾")
     args = parser.parse_args()
 
-    if args.gui:
-        run_gui(args)
+    # 指定 --gui，或沒有給伺服器位址 (例如直接雙擊程式) 時，開啟圖形介面
+    if args.gui or not args.server:
+        try:
+            run_gui(args)
+        except ImportError:
+            print("找不到 tkinter，無法開啟圖形介面，請改用文字模式:")
+            print("  python3 pop3client.py ServerIP")
+            sys.exit(1)
     else:
         run_cli(args)
 
