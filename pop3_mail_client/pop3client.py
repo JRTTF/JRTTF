@@ -242,6 +242,18 @@ class SMTPClient(POP3Client):
             self.close()
 
 
+def default_address(user, host):
+    """預設 email 地址。伺服器是 IP 時要用中括號，例如 iecs01@[140.134.135.42]
+    (RFC 5321 address literal)，否則伺服器會回 501 Bad sender address syntax。"""
+    if "@" in user:
+        return user
+    try:
+        socket.inet_aton(host)
+        return f"{user}@[{host}]"
+    except OSError:
+        return f"{user}@{host}"
+
+
 def build_message(sender, to, subject, body):
     """建立一封 UTF-8 信件：主題以 RFC 2047 Base64 編碼，內文以 Base64 編碼。"""
     msg = MIMEText(body, "plain", "utf-8")
@@ -255,7 +267,12 @@ def build_message(sender, to, subject, body):
 
 def send_mail(host, port, sender, to, subject, body, verbose=False, log=print):
     """寄信。to 可以是多個收件人 (以逗號分隔)。回傳伺服器最後的回應。"""
-    recipients = [addr for _, addr in getaddresses([to]) if addr]
+    recipients = []
+    for item in to.split(","):            # 支援 "名字 <a@b>" 或 a@[IP] 形式
+        m = re.search(r"<([^>]+)>", item)
+        addr = (m.group(1) if m else item).strip()
+        if addr:
+            recipients.append(addr)
     if not recipients:
         raise SMTPError("沒有有效的收件人地址")
     data = build_message(sender, to, subject, body)
@@ -298,7 +315,10 @@ def format_addresses(value):
     if not value:
         return ""
     out = []
-    for name, addr in getaddresses([str(value)]):
+    pairs = getaddresses([str(value)])
+    if not any(addr for _, addr in pairs):   # 例如 a@[1.2.3.4] 解析不出來，直接顯示原文
+        return decode_mime_header(value)
+    for name, addr in pairs:
         name = decode_mime_header(name)
         if name and addr:
             out.append(f"{name} <{addr}>")
@@ -611,7 +631,7 @@ def cli_send(args, user):
 
     host = ask("SMTP 伺服器", args.server)
     port = int(ask("SMTP port", str(SMTP_PORT)))
-    default_addr = f"{user}@{args.server}" if "@" not in user else user
+    default_addr = default_address(user, args.server)
     sender = ask("寄件人", default_addr)
     to = ask("收件人", default_addr)
     subject = input("主題: ")
@@ -956,7 +976,7 @@ def run_gui(args):
 
     def compose():
         host, _, _, user, _ = state["login"]
-        default_addr = user if "@" in user else f"{user}@{host}"
+        default_addr = default_address(user, host)
         win = tk.Toplevel(root)
         win.title("寄信 (SMTP)")
         win.geometry("640x520")
