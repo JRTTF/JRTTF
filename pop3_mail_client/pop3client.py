@@ -320,6 +320,7 @@ def format_addresses(value):
         return decode_mime_header(value)
     for name, addr in pairs:
         name = decode_mime_header(name)
+        addr = decode_mime_header(addr)      # 有些信連地址都編碼了，例如 =?utf-8?q?tjliu?=@ics.fcu.edu.tw
         if name and addr:
             out.append(f"{name} <{addr}>")
         else:
@@ -756,7 +757,7 @@ def run_gui(args):
     root = tk.Tk()
     root.title("POP3 Mail Client")
     root.geometry("1100x720")
-    state = {"box": None, "rows": [], "sort": ("num", False), "current": None, "login": None}
+    state = {"box": None, "rows": [], "sort": ("num", True), "current": None, "login": None}
 
     # ---------------- 登入畫面 ----------------
     login = ttk.Frame(root, padding=30)
@@ -977,6 +978,12 @@ def run_gui(args):
     def compose():
         host, _, _, user, _ = state["login"]
         default_addr = default_address(user, host)
+        # 從信箱裡寄給自己的信找出正確的地址 (例如 iecs01@ics.fcu.edu.tw)
+        for r in state["rows"]:
+            m = re.search(rf"\b{re.escape(user)}@[\w.-]+", r.to)
+            if m:
+                default_addr = m.group(0)
+                break
         win = tk.Toplevel(root)
         win.title("寄信 (SMTP)")
         win.geometry("640x520")
