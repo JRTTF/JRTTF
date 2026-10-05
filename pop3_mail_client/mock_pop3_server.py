@@ -5,7 +5,9 @@
 #  不同編碼的測試信 (UTF-8/Big5、Base64/Quoted-Printable、HTML、附件)，
 #  方便在沒有真實郵件伺服器時測試 pop3client.py。
 #
-#  Usage: python3 mock_pop3_server.py [port]      (預設 port 1100)
+#  另外在 port 2525 提供簡易 SMTP，寄來的信會直接放進同一個信箱。
+#
+#  Usage: python3 mock_pop3_server.py [port]      (預設 POP3 port 1100，SMTP port 2525)
 #         帳號: test   密碼: 1234
 #  2026.10.05
 ####################################################
@@ -201,6 +203,46 @@ class POP3Handler(socketserver.StreamRequestHandler):
         print(f"[-] connection closed {self.client_address}")
 
 
+class SMTPHandler(socketserver.StreamRequestHandler):
+    """極簡 SMTP：收下任何收件人的信，放進 MAILBOX。"""
+    def send(self, line):
+        self.wfile.write(line.encode("utf-8") + b"\r\n")
+
+    def handle(self):
+        print(f"[+] SMTP connection from {self.client_address}")
+        self.send("220 Mock SMTP server ready")
+        while True:
+            raw = self.rfile.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", "replace").strip()
+            cmd = line[:4].upper()
+            print(f"    C: {line}")
+            if cmd == "EHLO":
+                self.send("250-mock.local Hello")
+                self.send("250 8BITMIME")
+            elif cmd == "HELO":
+                self.send("250 mock.local Hello")
+            elif cmd in ("MAIL", "RCPT", "RSET", "NOOP"):
+                self.send("250 OK")
+            elif cmd == "DATA":
+                self.send("354 End data with <CR><LF>.<CR><LF>")
+                lines = []
+                while True:
+                    data = self.rfile.readline().rstrip(b"\r\n")
+                    if data == b".":
+                        break
+                    lines.append(data[1:] if data.startswith(b"..") else data)
+                with LOCK:
+                    MAILBOX.append(b"\r\n".join(lines) + b"\r\n")
+                self.send(f"250 OK: queued as {len(MAILBOX)}")
+            elif cmd == "QUIT":
+                self.send("221 Bye")
+                break
+            else:
+                self.send("502 Command not implemented")
+
+
 class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -208,6 +250,9 @@ class Server(socketserver.ThreadingTCPServer):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 1100
+    smtp = Server(("0.0.0.0", 2525), SMTPHandler)
+    threading.Thread(target=smtp.serve_forever, daemon=True).start()
     with Server(("0.0.0.0", port), POP3Handler) as srv:
         print(f"Mock POP3 server listening on port {port}  (user={USER}, pass={PASSWORD})")
+        print("Mock SMTP server listening on port 2525")
         srv.serve_forever()

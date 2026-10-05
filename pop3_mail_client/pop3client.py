@@ -18,6 +18,7 @@
 #    - 儲存信件 (.eml) 與附件、支援 POP3 over SSL (POP3S, port 995)
 #    - -v 顯示 Client/Server 之間的完整 POP3 對話過程
 #    - --gui 以 tkinter 圖形介面操作 (GUI)
+#    - 以 SMTP 寄信 (HELO/MAIL FROM/RCPT TO/DATA)，中文主題與內文以 UTF-8 Base64 編碼
 #
 #  Usage:
 #    python3 pop3client.py ServerIP                 (文字選單模式)
@@ -37,8 +38,9 @@ import sys
 import unicodedata
 from dataclasses import dataclass, field
 from email import message_from_bytes
-from email.header import decode_header
-from email.utils import getaddresses, parsedate_to_datetime
+from email.header import Header, decode_header
+from email.mime.text import MIMEText
+from email.utils import formatdate, getaddresses, make_msgid, parsedate_to_datetime
 from getpass import getpass
 from html.parser import HTMLParser
 
@@ -46,6 +48,7 @@ from html.parser import HTMLParser
 # 定義全域常數
 PORT = 110        # POP3 預設 port
 SSL_PORT = 995    # POP3S 預設 port
+SMTP_PORT = 25    # SMTP 預設 port
 BUFF_SIZE = 1024  # 接收緩衝區大小 (Byte)
 TIMEOUT = 30      # socket 逾時秒數
 DEFAULT_SERVER = "140.134.135.42"   # 課程 POP3 Server (GUI 登入畫面預設值)
@@ -54,6 +57,10 @@ DEFAULT_USER = "iecs01"             # 本組帳號 (GUI 登入畫面預設值)
 
 class POP3Error(Exception):
     """伺服器回應 -ERR 時丟出的例外。"""
+
+
+class SMTPError(Exception):
+    """SMTP 伺服器回應 4xx / 5xx 時丟出的例外。"""
 
 
 # ============================================================
@@ -187,6 +194,72 @@ class POP3Client:
             return self._single("QUIT")
         finally:
             self.close()
+
+
+# ============================================================
+#  SMTP 協定層：寄信 (沿用 POP3Client 的 socket 收送，改用三位數回應碼)
+# ============================================================
+class SMTPClient(POP3Client):
+    def __init__(self, host, port=None, verbose=False, log=print):
+        super().__init__(host, port or SMTP_PORT, False, verbose, log)
+
+    def _check(self, line):
+        """讀取 SMTP 回應 (可能多行，例如 "250-xxx" 表示後面還有)。2xx/3xx 表示成功。"""
+        lines = [line]
+        while line[3:4] == b"-":
+            line = self._readline()
+            lines.append(line)
+        text = "\n".join(x.decode("utf-8", errors="replace") for x in lines)
+        if self.verbose:
+            for x in text.splitlines():
+                self.log(f"S: {x}")
+        if text[:1] not in ("2", "3"):
+            raise SMTPError(text)
+        return text
+
+    def send_mail(self, sender, recipients, data):
+        """連線到 SMTP 伺服器並寄出一封信 (data 為整封信的 bytes)。"""
+        self.connect()
+        try:
+            try:
+                self._single("EHLO localhost")
+            except SMTPError:
+                self._single("HELO localhost")
+            self._single(f"MAIL FROM:<{sender}>")
+            for rcpt in recipients:
+                self._single(f"RCPT TO:<{rcpt}>")
+            self._single("DATA")                      # 354 Start mail input
+            lines = data.replace(b"\r\n", b"\n").split(b"\n")
+            lines = [b"." + x if x.startswith(b".") else x for x in lines]   # dot-stuffing
+            if self.verbose:
+                self.log(f"C: <{len(lines)} lines>")
+                self.log("C: .")
+            self.sock.sendall(b"\r\n".join(lines) + b"\r\n.\r\n")
+            reply = self._check(self._readline())
+            self._single("QUIT")
+            return reply
+        finally:
+            self.close()
+
+
+def build_message(sender, to, subject, body):
+    """建立一封 UTF-8 信件：主題以 RFC 2047 Base64 編碼，內文以 Base64 編碼。"""
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")
+    msg["From"] = sender
+    msg["To"] = to
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
+    return msg.as_bytes()
+
+
+def send_mail(host, port, sender, to, subject, body, verbose=False, log=print):
+    """寄信。to 可以是多個收件人 (以逗號分隔)。回傳伺服器最後的回應。"""
+    recipients = [addr for _, addr in getaddresses([to]) if addr]
+    if not recipients:
+        raise SMTPError("沒有有效的收件人地址")
+    data = build_message(sender, to, subject, body)
+    return SMTPClient(host, port, verbose, log).send_mail(sender, recipients, data)
 
 
 # ============================================================
@@ -524,10 +597,38 @@ MENU = """
  6. 搜尋信件 (主題 / 寄件人 / 收件人)
  7. 儲存第 n 封信 (.eml) 與附件
  8. 檢視第 n 封信原始內容 (raw source)
+ 9. 寄信 (SMTP)
  0. 離開 (QUIT，刪除在此時才會生效)
 ================================================"""
 SHORT_MENU = ("\n[1]信件數 [2]信件列表 [3]閱讀 [4]刪除 [5]取消刪除 [6]搜尋 [7]儲存 "
-              "[8]原始內容 [h]選單 [0]離開")
+              "[8]原始內容 [9]寄信 [h]選單 [0]離開")
+
+
+def cli_send(args, user):
+    """文字模式寄信。"""
+    def ask(prompt, default):
+        return input(f"{prompt} [{default}]: ").strip() or default
+
+    host = ask("SMTP 伺服器", args.server)
+    port = int(ask("SMTP port", str(SMTP_PORT)))
+    default_addr = f"{user}@{args.server}" if "@" not in user else user
+    sender = ask("寄件人", default_addr)
+    to = ask("收件人", default_addr)
+    subject = input("主題: ")
+    print("請輸入內容，輸入單獨一行 . 結束:")
+    lines = []
+    while True:
+        line = input()
+        if line == ".":
+            break
+        lines.append(line)
+    try:
+        reply = send_mail(host, port, sender, to, subject, "\n".join(lines), args.verbose)
+    except OSError as e:
+        print(f"SMTP 連線失敗: {e}")
+        return
+    print(f"Receive message: {reply}")
+    print("寄出成功！新信要重新登入 POP3 (選 0 離開後再執行) 才會出現在信箱中。")
 
 
 def run_cli(args):
@@ -598,6 +699,8 @@ def run_cli(args):
                     num = ask_number("要檢視第幾封信的原始內容? ")
                     if num is not None:
                         print(box.client.retr(num).decode("utf-8", errors="replace"))
+                elif choice == "9":
+                    cli_send(args, name)
                 elif choice == "0":
                     break
                 elif choice == "h":
@@ -605,7 +708,7 @@ def run_cli(args):
                 else:
                     print("無此選項，請重新輸入。")
                     print(MENU)
-            except POP3Error as e:
+            except (POP3Error, SMTPError) as e:
                 print(f"伺服器回應錯誤: {e}")
     except (KeyboardInterrupt, EOFError):
         print()
@@ -633,7 +736,7 @@ def run_gui(args):
     root = tk.Tk()
     root.title("POP3 Mail Client")
     root.geometry("1100x720")
-    state = {"box": None, "rows": [], "sort": ("num", False), "current": None}
+    state = {"box": None, "rows": [], "sort": ("num", False), "current": None, "login": None}
 
     # ---------------- 登入畫面 ----------------
     login = ttk.Frame(root, padding=30)
@@ -703,7 +806,7 @@ def run_gui(args):
             root.update_idletasks()
             try:
                 return fn(*a)
-            except POP3Error as e:
+            except (POP3Error, SMTPError) as e:
                 messagebox.showerror("伺服器錯誤", str(e))
             except (OSError, ConnectionError) as e:
                 messagebox.showerror("連線錯誤", f"{e}\n\n請重新啟動程式並登入。")
@@ -746,8 +849,28 @@ def run_gui(args):
         state["sort"] = (key, not rev if cur == key else False)
         fill_tree()
 
+    def connect_box():
+        host, port, use_ssl, user, password = state["login"]
+        client = POP3Client(host, port, use_ssl, verbose=args.verbose)
+        try:
+            client.connect()
+            client.login(user, password)
+        except Exception:
+            client.close()
+            raise
+        state["box"] = MailBox(client)
+        state["rows"] = []
+
     @busy
-    def refresh():
+    def refresh(reconnect=True):
+        # POP3 連線期間信箱內容固定，重新連線才看得到新信。
+        # 若有尚未生效的刪除，則不重新連線 (以免 QUIT 時直接刪除)。
+        if reconnect and not state["box"].deleted:
+            try:
+                state["box"].quit()
+            except Exception:
+                pass
+            connect_box()
         box = state["box"]
         alive = box.summaries()
         known = {r.num: r for r in state["rows"]}
@@ -831,7 +954,39 @@ def run_gui(args):
         txt.insert("1.0", raw)
         txt.configure(state="disabled")
 
-    for text, cmd in (("重新整理", refresh), ("刪除", delete_mail), ("取消刪除 (RSET)", undelete),
+    def compose():
+        host, _, _, user, _ = state["login"]
+        default_addr = user if "@" in user else f"{user}@{host}"
+        win = tk.Toplevel(root)
+        win.title("寄信 (SMTP)")
+        win.geometry("640x520")
+        form = ttk.Frame(win, padding=10)
+        form.pack(fill="x")
+        v = {k: tk.StringVar(value=d) for k, d in (
+            ("host", host), ("port", str(SMTP_PORT)), ("from", default_addr),
+            ("to", default_addr), ("subject", "POP3 作業測試信"))}
+        for i, (k, label) in enumerate((("host", "SMTP 伺服器"), ("port", "Port"),
+                                         ("from", "寄件人"), ("to", "收件人"),
+                                         ("subject", "主題"))):
+            ttk.Label(form, text=label).grid(row=i, column=0, sticky="e", padx=4, pady=3)
+            ttk.Entry(form, textvariable=v[k], width=60).grid(row=i, column=1, sticky="we", pady=3)
+        form.columnconfigure(1, weight=1)
+        text = ScrolledText(win, wrap="word", height=12)
+        text.pack(fill="both", expand=True, padx=10)
+        text.insert("1.0", "這是一封中文測試信，用來測試 POP3 Mail Client 的解碼功能。\n")
+
+        @busy
+        def do_send():
+            port = int(v["port"].get()) if v["port"].get().strip().isdigit() else SMTP_PORT
+            reply = send_mail(v["host"].get().strip(), port, v["from"].get().strip(),
+                              v["to"].get().strip(), v["subject"].get(),
+                              text.get("1.0", "end-1c"), args.verbose)
+            messagebox.showinfo("寄出成功", f"{reply}\n\n按「重新整理」即可收到新信。", parent=win)
+            win.destroy()
+
+        ttk.Button(win, text="寄出", command=do_send).pack(pady=8)
+
+    for text, cmd in (("重新整理", refresh), ("寄信", compose), ("刪除", delete_mail), ("取消刪除 (RSET)", undelete),
                       ("儲存信件/附件", save_mail), ("檢視原始碼", view_source)):
         ttk.Button(toolbar, text=text, command=cmd).pack(side="left", padx=3)
     ttk.Entry(toolbar, textvariable=v_search, width=24).pack(side="right", padx=3)
@@ -847,18 +1002,12 @@ def run_gui(args):
             messagebox.showwarning("登入", "請輸入 POP3 伺服器位址。")
             return
         port = int(v_port.get()) if v_port.get().strip().isdigit() else None
-        client = POP3Client(host, port, v_ssl.get(), verbose=args.verbose)
-        try:
-            client.connect()
-            client.login(v_user.get().strip(), v_pass.get())
-        except Exception:
-            client.close()
-            raise
-        state["box"] = MailBox(client)
+        state["login"] = (host, port, v_ssl.get(), v_user.get().strip(), v_pass.get())
+        connect_box()
         root.title(f"POP3 Mail Client - {v_user.get()}@{host}")
         login.pack_forget()
         main.pack(fill="both", expand=True)
-        refresh()
+        refresh(False)
 
     login_btn.configure(command=do_login)
     root.bind("<Return>", lambda e: do_login() if state["box"] is None else None)

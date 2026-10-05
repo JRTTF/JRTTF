@@ -26,7 +26,7 @@ python3 pop3client.py --gui                # 圖形介面 (tkinter)
 python3 pop3client.py                      # 不加參數 (或直接雙擊檔案) 也會開啟圖形介面
 ```
 
-沒有可用的郵件伺服器時，可以先在本機啟動測試伺服器（帳號 `test`，密碼 `1234`）：
+沒有可用的郵件伺服器時，可以先在本機啟動測試伺服器（帳號 `test`，密碼 `1234`；SMTP 寄信用 port `2525`）：
 
 ```bash
 python3 mock_pop3_server.py 1100          # 視窗 1
@@ -46,6 +46,7 @@ python3 pop3client.py 127.0.0.1 -p 1100   # 視窗 2
 | 加分：顯示協定對話 (`-v`) | 全部 | `cli_6_verbose.png` |
 | 加分：POP3S (`--ssl`) | 以 TLS 包裝 socket | — |
 | 加分：GUI (`--gui`) | 全部 | `gui_*.png` |
+| 加分：寄信（中文主題和內文用 UTF-8 Base64 編碼） | SMTP `EHLO`/`MAIL FROM`/`RCPT TO`/`DATA` | `gui_7_compose.png`、`gui_8_after_send.png` |
 
 ### 解碼處理
 - **標頭**：用 `decode_header` 解 RFC 2047 編碼字（例如 `=?UTF-8?B?...?=`、`=?big5?B?...?=`）。
