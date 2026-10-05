@@ -1,8 +1,8 @@
 ####################################################
 #  Network Programming - Unit 3 Application based on TCP
 #  Program Name: pop3client.py
-#  學號 (Student ID): XXXXXXXXX
-#  姓名 (Name)      : XXX
+#  學號 (Student ID): D1211110
+#  姓名 (Name)      : 陳嘉希
 #
 #  The program is a POP3 mail client (修改自範例 pop3client.py)。
 #  以 TCP socket 直接與 POP3 伺服器對話 (USER/PASS/STAT/LIST/TOP/RETR/DELE/RSET/QUIT)，
@@ -48,6 +48,8 @@ PORT = 110        # POP3 預設 port
 SSL_PORT = 995    # POP3S 預設 port
 BUFF_SIZE = 1024  # 接收緩衝區大小 (Byte)
 TIMEOUT = 30      # socket 逾時秒數
+DEFAULT_SERVER = "140.134.135.42"   # 課程 POP3 Server (GUI 登入畫面預設值)
+DEFAULT_USER = "iecs01"             # 本組帳號 (GUI 登入畫面預設值)
 
 
 class POP3Error(Exception):
@@ -638,10 +640,10 @@ def run_gui(args):
     login.pack(expand=True)
     ttk.Label(login, text="POP3 Mail Client", font=("TkDefaultFont", 18, "bold")) \
         .grid(row=0, column=0, columnspan=2, pady=(0, 20))
-    v_host = tk.StringVar(value=args.server or "")
+    v_host = tk.StringVar(value=args.server or DEFAULT_SERVER)
     v_port = tk.StringVar(value=str(args.port or ""))
     v_ssl = tk.BooleanVar(value=args.ssl)
-    v_user = tk.StringVar(value=args.user or "")
+    v_user = tk.StringVar(value=args.user or DEFAULT_USER)
     v_pass = tk.StringVar()
     fields = [("POP3 伺服器", v_host, None), ("Port (空白=預設)", v_port, None),
               ("帳號", v_user, None), ("密碼", v_pass, "*")]

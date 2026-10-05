@@ -2,7 +2,7 @@
 
 修改自範例 `pop3client.py`。程式用 TCP socket 直接送出 POP3 指令，再用 Python 內建的 `email` 模組解析和解碼信件。只需要 Python 3 標準函式庫，不必另外安裝套件。
 
-> 上傳 iLearn 前，請先把 `pop3client.py` 檔頭的 **學號**、**姓名** 改成自己的資料。
+> 學號：D1211110　姓名：陳嘉希
 
 ## 檔案
 
